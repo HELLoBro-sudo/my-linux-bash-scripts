@@ -1,0 +1,185 @@
+How to Use:
+Save the Script: Copy the script above and save it as setup_wordpress.sh in your Debian WSL environment (e.g., using sudo nano setup_wordpress.sh).:
+
+sudo nano setup_wordpress.sh
+
+Make it Executable:
+ 
+sudo chmod +x setup_wordpress.sh
+
+Remove Executable after running file if you like to: 
+
+sudo chmod -x setup_wordpress.sh
+
+Run the Script Execute the script with: 
+
+./setup_wordpress.sh
+
+Access WordPress: After the script completes, open a browser on your Windows host and navigate to http://localhost to complete the WordPress installation via the web interface.
+
+WSL Networking: If localhost doesn’t work, find your WSL IP address by running ip addr show eth0 | grep inet in the WSL terminal and use that IP in the browser (e.g., http://<WSL-IP>/wordpress).
+
+Issue: not sure what I'm missing but I can't get wordpress_input_password to work, so on my og file I manually input that info.
+
+start coping text from #!/bin/bash down
+
+#!/bin/bash
+
+# Update package lists
+sudo apt update && sudo apt upgrade -y
+
+# Install Apache
+sudo apt install -y apache2
+sudo systemctl enable apache2
+sudo systemctl start apache2
+
+# Install MariaDB
+sudo apt install -y mariadb-server
+sudo systemctl enable mariadb
+sudo systemctl start mariadb
+echo ""
+echo "Press Enter to start the secure installation process..."
+read -p ""
+sudo mysql_secure_installation
+
+# Install PHP and required modules for WordPress
+sudo apt install -y php php-mysql php-curl php-gd php-mbstring php-xml php-xmlrpc php-soap php-intl php-zip libapache2-mod-php
+
+# Add php info test page
+sudo bash -c 'cat > /var/www/html/testphp.php <<EOF
+<?php
+phpinfo();
+?>
+EOF'
+
+
+# Install Node.js (using NodeSource for the latest LTS version)
+sudo apt install -y curl
+curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
+sudo apt install -y nodejs
+
+# Prompt for MariaDB root password to create WordPress database
+echo ""
+echo "Please enter the MariaDB root password you set during mysql_secure_installation:"
+echo ""
+read -sp "Password: " mariadb_root_password
+echo ""
+
+# Prompt for password to create WordPress database
+echo ""
+echo "Please enter password you want for your Wordpress datebase"
+echo ""
+read -sp "Password: " wordpress_input_password
+echo ""
+
+# Create MariaDB database and user for WordPress
+sudo mysql -uroot -p"$mariadb_root_password" -e "CREATE DATABASE wordpress_db; \
+CREATE USER wp_user@localhost IDENTIFIED BY '${wordpress_input_password}'; \
+GRANT ALL PRIVILEGES ON wordpress_db.* TO wp_user@localhost; \
+FLUSH PRIVILEGES;" || {
+    echo "Error: Failed to create WordPress database. Check your MariaDB root password and try again."
+    exit 1
+}
+
+#Create a test PHP script to verify the database connection
+sudo bash -c 'cat > /var/www/html/testdb.php <<EOF
+<?php
+\$conn = new mysqli("localhost", "wp_user", "\$wordpress_input_password", "wordpress_db");
+if (\$conn->connect_error) {
+    die("Connection failed: " . \$conn->connect_error);
+}
+echo "Connected successfully";
+\$conn->close();
+?>
+EOF'
+
+# Download and set up WordPress
+sudo apt install -y wget unzip
+wget https://wordpress.org/latest.tar.gz
+tar -xzf latest.tar.gz
+sudo mv wordpress/* /var/www/html 
+sudo chown -R www-data:www-data /var/www/html
+sudo chmod -R 755 /var/www/html
+sudo rm -rf wordpress latest.tar.gz
+
+# Configure Apache for WordPress
+sudo bash -c 'cat > /etc/apache2/sites-available/wordpress.conf <<EOF
+<VirtualHost *:80>
+    ServerAdmin admin@localhost
+    DocumentRoot /var/www/html
+    ServerName localhost
+    <Directory /var/www/html>
+        Options Indexes FollowSymLinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+    ErrorLog ${APACHE_LOG_DIR}/wordpress_error.log
+    CustomLog ${APACHE_LOG_DIR}/wordpress_access.log combined
+</VirtualHost>
+EOF'
+
+# Configure DirectoryIndex in dir.conf
+sudo bash -c 'cat > /etc/apache2/mods-enabled/dir.conf <<EOF
+DirectoryIndex index.php index.html index.cgi index.pl index.xhtml index.htm
+EOF'
+
+# Enable the WordPress site and rewrite module
+sudo a2ensite wordpress
+sudo a2enmod rewrite
+sudo systemctl restart apache2
+
+# Create WordPress configuration file
+sudo -u www-data cp /var/www/html/wp-config-sample.php /var/www/html/wp-config.php
+sudo -u www-data sed -i "s/database_name_here/wordpress_db/" /var/www/html/wp-config.php
+sudo -u www-data sed -i "s/username_here/wp_user/" /var/www/html/wp-config.php
+sudo -u www-data sed -i "s/password_here/\$wordpress_input_password/" /var/www/html/wp-config.php
+
+# Update package lists again
+sudo apt update && sudo apt upgrade -y
+
+# Verify installations
+echo "..............................."
+echo "...Verifying installed versions..."
+apache2 -v
+mysql --version
+php -v
+node -v
+npm -v
+curl -v
+echo "Press Enter to Finish Up a little too quick. If you get what I'm saying...lol"
+read -p ""
+
+# Check test pages
+echo "..................................."
+echo " "
+echo "Now check to confirm Apache2 is installed"
+echo "go to http://localhost/index.html"
+echo " "
+echo "Check to confirm PHP is installed"
+echo "go to http://localhost/testphp.php"
+echo " "
+echo "Last check to confirm MariaDB is connected"
+echo "go to http://localhost/testdb.php"
+echo " "
+echo "If all pages are loading correctly you are good to Press Enter and continue. Will delete Testdb.php and test.php pages now."
+read -p ""
+sudo rm -rf /var/www/html/testphp.php /var/www/html/testdb.php
+
+
+# Print setup information
+echo "..................................."
+echo " "
+echo " WordPress setup complete!"
+echo " that's so cool! good for you!"
+echo " "
+echo "..................................."
+echo " "
+echo "Access your WordPress site at: http://localhost"
+echo " "
+echo "MariaDB root user: root, password: [the password you set] mariadb_root_password"
+echo " "
+echo "WordPress database: wordpress_db, user: wp_user, password: [the password you set] wordpress_input_password"
+echo " "
+echo "To complete WordPress installation, open http://localhost in your browser and follow the setup wizard."
+echo " "
+echo "..............................."
